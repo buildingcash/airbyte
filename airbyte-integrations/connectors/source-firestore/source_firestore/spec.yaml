@@ -33,3 +33,10 @@ connectionSpecification:
       examples:
         - updatedAt
         - createdAt
+    collection_groups:
+      title: Collection groups
+      type: array
+      description: >-
+        Collection groups to support in streams.
+      examples:
+        - collection_name
