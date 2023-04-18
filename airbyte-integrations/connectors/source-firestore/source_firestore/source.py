@@ -166,7 +166,7 @@ class IncrementalFirestoreStream(FirestoreStream, IncrementalMixin):
     def guess_cursor_field(self, cursor_field_possibilities: List[str]) -> Union[str, None]:
         records = list(self.read_records(sync_mode=SyncMode.full_refresh, stream_state={"page_size": 1}))
         if len(records) == 0:
-            return None
+            return []
         # try to guess default field from first record
         first_record = records[0]["json_data"]
 
@@ -253,5 +253,6 @@ class SourceFirestore(AbstractSource):
     def streams(self, config: Mapping[str, Any]):
         auth = self.get_auth(config=config)
         project_id = config["project_id"]
+        collection_groups = config["collection_groups"] if "collection_groups" in config else []
         collections = self.discover_collections(project_id, auth)
-        return map(lambda collection_name : Collection(auth, collection_name, config), collections)
+        return map(lambda collection_name : Collection(auth, collection_name, config), collections + collection_groups)
