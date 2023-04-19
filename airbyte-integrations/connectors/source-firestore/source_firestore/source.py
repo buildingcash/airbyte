@@ -248,7 +248,7 @@ class SourceFirestore(AbstractSource):
         response = requests.post(url, headers=auth.get_auth_header())
         response.raise_for_status()
         json = response.json()
-        return json["collectionIds"]
+        return json.get("collectionIds", [])
 
     def streams(self, config: Mapping[str, Any]):
         auth = self.get_auth(config=config)
