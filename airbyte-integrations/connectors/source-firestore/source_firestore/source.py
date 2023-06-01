@@ -164,7 +164,7 @@ class IncrementalFirestoreStream(FirestoreStream, IncrementalMixin):
         print(self.cursor_field)
 
     def guess_cursor_field(self, cursor_field_possibilities: List[str]) -> Union[str, None]:
-        records = list(self.read_records(sync_mode=SyncMode.full_refresh, stream_state={"page_size": 1}))
+        records = list(self.read_records(sync_mode=SyncMode.incremental, stream_state={"page_size": 1}))
         if len(records) == 0:
             return []
         # try to guess default field from first record
@@ -183,6 +183,7 @@ class IncrementalFirestoreStream(FirestoreStream, IncrementalMixin):
     def state(self, value: MutableMapping[str, Any]):
         new_cursor_value = value.get(self.cursor_key, self.start_date) if self.cursor_key else None
         self._cursor_value = Helpers.parse_date(new_cursor_value) if isinstance(new_cursor_value, str) else new_cursor_value
+        self.logger.info(f"Setting state: {self.cursor_key} = {self._cursor_value} (parsed from {new_cursor_value})")
 
     def request_params(
         self, stream_state: Mapping[str, Any], stream_slice: Mapping[str, Any] = {}, next_page_token: Mapping[str, Any] = {}
@@ -198,7 +199,6 @@ class IncrementalFirestoreStream(FirestoreStream, IncrementalMixin):
         stream_state: Mapping[str, Any] = {},
     ) -> Iterable[Mapping[str, Any]]:
         self.logger.info(f"Stream {self.name}: Reading in {sync_mode} (cursor field {cursor_field}). Current cursor value: {self._cursor_value}")
-        self.cursor_field = cursor_field
         for record in super().read_records(
             sync_mode=sync_mode, cursor_field=cursor_field, stream_slice=stream_slice, stream_state=stream_state
         ):
