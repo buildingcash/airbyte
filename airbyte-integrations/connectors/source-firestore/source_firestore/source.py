@@ -103,7 +103,7 @@ class FirestoreStream(HttpStream, ABC):
         timestamp_state: Optional[datetime] = stream_state.get(self.cursor_key) if self.cursor_key else None
         timestamp_value = Helpers.parse_date(timestamp_state).isoformat() if timestamp_state else None
 
-        self.logger.info(f"Requesting body JSON with cursor {self.cursor_key} value {next_page_token} and page_size {page_size}")
+        self.logger.info(f"Requesting body JSON for collection {self.collection_name} with cursor {self.cursor_key} value {next_page_token} and page_size {page_size}")
 
         return {
             "structuredQuery": {
