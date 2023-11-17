@@ -103,7 +103,7 @@ class FirestoreStream(HttpStream, ABC):
         timestamp_state: Optional[datetime] = stream_state.get(self.cursor_key) if self.cursor_key else None
         timestamp_value = Helpers.parse_date(timestamp_state).isoformat() if timestamp_state else None
 
-        self.logger.info(f"Requesting body JSON for collection {self.collection_name} with cursor {self.cursor_key} value {next_page_token} and page_size {page_size}")
+        self.logger.info(f"Stream {self.name}: Requesting body JSON for collection {self.collection_name} with cursor {self.cursor_key} (value: {timestamp_value}), next_page_token: {next_page_token} and page_size: {page_size}")
 
         return {
             "structuredQuery": {
@@ -161,9 +161,10 @@ class IncrementalFirestoreStream(FirestoreStream, IncrementalMixin):
     def __init__(self, authenticator: TokenAuthenticator, collection_name: str, cursor_field_possibilities: List[str] = []):
         super().__init__(authenticator=authenticator, collection_name=collection_name)
         self.cursor_field = self.guess_cursor_field(cursor_field_possibilities)
-        print(self.cursor_field)
+        self.logger.info(f"Stream {self.name}: Guessed cursor field {self.cursor_field})")
 
     def guess_cursor_field(self, cursor_field_possibilities: List[str]) -> Union[str, None]:
+        self.logger.info(f"Stream {self.name}: Guessing from 1 record")
         records = list(self.read_records(sync_mode=SyncMode.incremental, stream_state={"page_size": 1}))
         if len(records) == 0:
             return []
