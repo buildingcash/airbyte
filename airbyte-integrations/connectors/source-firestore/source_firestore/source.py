@@ -136,6 +136,8 @@ class FirestoreStream(HttpStream, ABC):
                     result[self.cursor_key] = entry["document"]["fields"][self.cursor_key]["timestampValue"]
 
                 results.append(result)
+
+        self.logger.info(f"Stream {self.name}: Parsed {len(results)} results")
         return iter(results)
 
     def get_json_schema(self) -> Mapping[str, Any]:
