@@ -1,5 +1,9 @@
 const fs = require("fs");
 const path = require("path");
+const {
+  parseMarkdownContentTitle,
+  parseFrontMatter,
+} = require("@docusaurus/utils");
 
 const connectorsDocsRoot = "../docs/integrations";
 const sourcesDocs = `${connectorsDocsRoot}/sources`;
@@ -8,16 +12,58 @@ const destinationDocs = `${connectorsDocsRoot}/destinations`;
 function getFilenamesInDir(prefix, dir, excludes) {
   return fs
     .readdirSync(dir)
-    .filter((fileName) => !fileName.endsWith(".inapp.md"))
+    .filter(
+      (fileName) =>
+        !(
+          fileName.endsWith(".inapp.md") ||
+          fileName.endsWith("-migrations.md") ||
+          fileName.endsWith(".js")
+        )
+    )
     .map((fileName) => fileName.replace(".md", ""))
     .filter((fileName) => excludes.indexOf(fileName.toLowerCase()) === -1)
     .map((filename) => {
-      return { type: "doc", id: path.join(prefix, filename) };
+      // Get the first header of the markdown document
+      const { contentTitle } = parseMarkdownContentTitle(
+        parseFrontMatter(fs.readFileSync(path.join(dir, `${filename}.md`)))
+          .content
+      );
+      if (!contentTitle) {
+        throw new Error(
+          `Could not parse title from ${path.join(
+            prefix,
+            filename
+          )}. Make sure there's no content above the first heading!`
+        );
+      }
+
+      // If there is a migration doc for this connector nest this under the original doc as "Migration Guide"
+      const migrationDocPath = path.join(dir, `${filename}-migrations.md`);
+      if (fs.existsSync(migrationDocPath)) {
+        return {
+          type: "category",
+          label: contentTitle,
+          link: { type: "doc", id: path.join(prefix, filename) },
+          items: [
+            {
+              type: "doc",
+              id: path.join(prefix, `${filename}-migrations`),
+              label: "Migration Guide",
+            },
+          ],
+        };
+      }
+
+      return { type: "doc", id: path.join(prefix, filename), label: contentTitle };
     });
 }
 
 function getSourceConnectors() {
-  return getFilenamesInDir("integrations/sources/", sourcesDocs, ["readme"]);
+  return getFilenamesInDir("integrations/sources/", sourcesDocs, [
+    "readme",
+    "postgres",
+    "mysql"
+  ]);
 }
 
 function getDestinationConnectors() {
@@ -25,6 +71,43 @@ function getDestinationConnectors() {
     "readme",
   ]);
 }
+
+const sourcePostgres = {
+  type: "category",
+  label: "Postgres",
+  link: {
+    type: "doc",
+    id: "integrations/sources/postgres",
+  },
+  items: [
+    {
+      type: "doc",
+      label: "Cloud SQL for Postgres",
+      id: "integrations/sources/postgres/cloud-sql-postgres",
+    },
+    {
+      type: "doc",
+      label: "Troubleshooting",
+      id: "integrations/sources/postgres/postgres-troubleshooting",
+    },
+  ],
+};
+
+const sourceMysql = {
+  type: "category",
+  label: "MySQL",
+  link: {
+    type: "doc",
+    id: "integrations/sources/mysql",
+  },
+  items: [
+    {
+      type: "doc",
+      label: "Troubleshooting",
+      id: "integrations/sources/mysql/mysql-troubleshooting",
+    },
+  ],
+};
 
 const sectionHeader = (title) => ({
   type: "html",
@@ -166,7 +249,6 @@ const buildAConnector = {
           ],
         },
         "connector-development/tutorials/building-a-python-source",
-        "connector-development/tutorials/building-a-python-destination",
         "connector-development/tutorials/building-a-java-destination",
         "connector-development/tutorials/profile-java-connector-memory",
       ],
@@ -193,7 +275,7 @@ const connectorCatalog = {
       link: {
         type: "generated-index",
       },
-      items: getSourceConnectors(),
+      items: [sourcePostgres, sourceMysql, ...getSourceConnectors()].sort((itemA, itemB) => itemA.label.localeCompare(itemB.label)),
     },
     {
       type: "category",
@@ -218,26 +300,20 @@ const contributeToAirbyte = {
     id: "contributing-to-airbyte/README",
   },
   items: [
-    "contributing-to-airbyte/code-of-conduct",
-    "contributing-to-airbyte/issues-and-pull-requests",
-    "contributing-to-airbyte/developing-locally",
-    "contributing-to-airbyte/developing-on-docker",
-    "contributing-to-airbyte/python-gradle-setup",
-    "contributing-to-airbyte/code-style",
-    "contributing-to-airbyte/gradle",
+    "contributing-to-airbyte/issues-and-requests",
+    "contributing-to-airbyte/change-cdk-connector",
+    "contributing-to-airbyte/submit-new-connector",
+    "contributing-to-airbyte/writing-docs",
     {
       type: "category",
-      label: "Updating documentation",
-      link: {
-        type: "doc",
-        id: "contributing-to-airbyte/contribute-documentation",
-      },
+      label: "Resources",
       items: [
-        {
-          type: "link",
-          label: "Connector doc template",
-          href: "https://hackmd.io/Bz75cgATSbm7DjrAqgl4rw",
-        },
+        "contributing-to-airbyte/resources/pull-requests-handbook",
+        "contributing-to-airbyte/resources/code-style",
+        "contributing-to-airbyte/resources/developing-locally",
+        "contributing-to-airbyte/resources/developing-on-docker",
+        "contributing-to-airbyte/resources/gradle",
+        "contributing-to-airbyte/resources/python-gradle-setup",
       ],
     },
   ],
@@ -257,16 +333,17 @@ const airbyteCloud = [
       type: "generated-index",
     },
     items: [
-      "cloud/managing-airbyte-cloud/edit-stream-configuration",
+      "cloud/managing-airbyte-cloud/configuring-connections",
+      "cloud/managing-airbyte-cloud/review-connection-status",
+      "cloud/managing-airbyte-cloud/review-sync-history",
       "cloud/managing-airbyte-cloud/manage-schema-changes",
-      "cloud/managing-airbyte-cloud/manage-data-residency",
-      "cloud/managing-airbyte-cloud/manage-credits",
-      "cloud/managing-airbyte-cloud/review-sync-summary",
       "cloud/managing-airbyte-cloud/manage-airbyte-cloud-notifications",
+      "cloud/managing-airbyte-cloud/manage-data-residency",
       "cloud/managing-airbyte-cloud/dbt-cloud-integration",
+      "cloud/managing-airbyte-cloud/manage-credits",
+      "cloud/managing-airbyte-cloud/manage-connection-state",
       "cloud/managing-airbyte-cloud/manage-airbyte-cloud-workspace",
       "cloud/managing-airbyte-cloud/understand-airbyte-cloud-limits",
-      "cloud/managing-airbyte-cloud/review-connection-state",
     ],
   },
 ];
@@ -315,11 +392,6 @@ const deployAirbyte = {
     },
     {
       type: "doc",
-      label: "On Kubernetes using Kustomize",
-      id: "deploying-airbyte/on-kubernetes",
-    },
-    {
-      type: "doc",
       label: "On Kubernetes using Helm",
       id: "deploying-airbyte/on-kubernetes-via-helm",
     },
@@ -346,6 +418,19 @@ const deployAirbyte = {
   ],
 };
 
+const airbyteSelfManaged = {
+  type: "category",
+  label: "Airbyte Self-Managed",
+  link: {
+    type: "doc",
+    id: "enterprise-setup/self-managed/README",
+  },
+  items: [
+    "enterprise-setup/self-managed/implementation-guide",
+    "enterprise-setup/self-managed/sso",
+  ]
+}
+
 const operatorGuide = {
   type: "category",
   label: "Manage Airbyte",
@@ -361,7 +446,9 @@ const operatorGuide = {
     "operator-guides/using-the-airflow-airbyte-operator",
     "operator-guides/using-prefect-task",
     "operator-guides/using-dagster-integration",
+    "operator-guides/using-kestra-plugin",
     "operator-guides/locating-files-local-destination",
+    "operator-guides/collecting-metrics",
     {
       type: "category",
       label: "Transformations and Normalization",
@@ -371,19 +458,10 @@ const operatorGuide = {
         "operator-guides/transformation-and-normalization/transformations-with-airbyte",
       ],
     },
-    {
-      type: "category",
-      label: "Configuring Airbyte",
-      link: {
-        type: "doc",
-        id: "operator-guides/configuring-airbyte",
-      },
-      items: ["operator-guides/sentry-integration"],
-    },
+    "operator-guides/configuring-airbyte",
     "operator-guides/using-custom-connectors",
     "operator-guides/scaling-airbyte",
     "operator-guides/configuring-sync-notifications",
-    "operator-guides/collecting-metrics",
   ],
 };
 
@@ -395,6 +473,7 @@ const understandingAirbyte = {
     "understanding-airbyte/airbyte-protocol",
     "understanding-airbyte/airbyte-protocol-docker",
     "understanding-airbyte/basic-normalization",
+    "understanding-airbyte/typing-deduping",
     {
       type: "category",
       label: "Connections and Sync Modes",
@@ -407,7 +486,7 @@ const understandingAirbyte = {
         "understanding-airbyte/connections/full-refresh-overwrite",
         "understanding-airbyte/connections/full-refresh-append",
         "understanding-airbyte/connections/incremental-append",
-        "understanding-airbyte/connections/incremental-deduped-history",
+        "understanding-airbyte/connections/incremental-append-deduped",
       ],
     },
     "understanding-airbyte/operations",
@@ -427,6 +506,11 @@ const security = {
   id: "operator-guides/security",
 };
 
+const support = {
+  type: "doc",
+  id: "operator-guides/contact-support",
+};
+
 module.exports = {
   mySidebar: [
     {
@@ -444,13 +528,19 @@ module.exports = {
     deployAirbyte,
     operatorGuide,
     {
-      type: 'doc',
+      type: "doc",
       id: "troubleshooting",
     },
+    sectionHeader("Enterprise Setup"),
+    airbyteSelfManaged,
     sectionHeader("Developer Guides"),
     {
       type: "doc",
       id: "api-documentation",
+    },
+    {
+      type: "doc",
+      id: "terraform-documentation",
     },
     {
       type: "doc",
@@ -459,6 +549,7 @@ module.exports = {
     understandingAirbyte,
     contributeToAirbyte,
     sectionHeader("Resources"),
+    support,
     security,
     {
       type: "category",
@@ -467,10 +558,11 @@ module.exports = {
         {
           type: "link",
           label: "Roadmap",
-          href: "https://app.harvestr.io/roadmap/view/pQU6gdCyc/airbyte-roadmap",
+          href: "https://go.airbyte.com/roadmap",
         },
-        "project-overview/product-release-stages",
+        "project-overview/product-support-levels",
         "project-overview/slack-code-of-conduct",
+        "project-overview/code-of-conduct",
         {
           type: "link",
           label: "Airbyte Repository",
@@ -499,6 +591,14 @@ module.exports = {
         type: "generated-index",
       },
       items: [
+        "release_notes/october_2023",
+        "release_notes/upgrading_to_destinations_v2",
+        "release_notes/september_2023",
+        "release_notes/july_2023",
+        "release_notes/june_2023",
+        "release_notes/may_2023",
+        "release_notes/april_2023",
+        "release_notes/march_2023",
         "release_notes/february_2023",
         "release_notes/january_2023",
         "release_notes/december_2022",
