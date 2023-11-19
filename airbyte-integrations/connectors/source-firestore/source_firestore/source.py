@@ -6,7 +6,7 @@
 from abc import ABC
 from datetime import datetime
 from typing import Any, Iterable, List, Mapping, MutableMapping, Optional, Tuple, Union
-
+import traceback
 import requests
 from airbyte_cdk.models import SyncMode
 from airbyte_cdk.sources import AbstractSource
@@ -104,6 +104,7 @@ class FirestoreStream(HttpStream, ABC):
         timestamp_value = Helpers.parse_date(timestamp_state).isoformat() if timestamp_state else None
 
         self.logger.info(f"Stream {self.name}: Requesting body JSON for collection {self.collection_name} with cursor {self.cursor_key} (value: {timestamp_value}), next_page_token: {next_page_token} and page_size: {page_size}")
+        traceback.print_stack()
 
         return {
             "structuredQuery": {
@@ -122,6 +123,9 @@ class FirestoreStream(HttpStream, ABC):
                 "startAt": {"values": [next_page_token], "before": False} if next_page_token else None,
             }
         }
+    
+    def check_availability(self, logger, source = None) -> Tuple[bool, Optional[str]]:
+        return True, None
 
     def parse_response(self, response: requests.Response, **kwargs) -> Iterable[Mapping]:
         data = response.json()
