@@ -137,7 +137,8 @@ class FirestoreStream(HttpStream, ABC):
                     "json_data": entry["document"]["fields"],
                 }
                 if self.cursor_key:
-                    result[self.cursor_key] = entry["document"]["fields"][self.cursor_key]["timestampValue"]
+                    cursor = entry["document"]["fields"][self.cursor_key]
+                    result[self.cursor_key] = cursor["timestampValue"] if "timestampValue" in cursor else cursor["stringValue"]
 
                 results.append(result)
 
