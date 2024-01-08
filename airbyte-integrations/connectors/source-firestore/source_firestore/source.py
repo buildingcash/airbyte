@@ -79,13 +79,15 @@ class FirestoreStream(HttpStream, ABC):
         self._cursor_value = None
         self.collection_name = collection_name
 
-    def next_page_token(self, response: requests.Response) -> Optional[Mapping[str, Any]]:
+    def next_page_token(self, response: requests.Response) -> int:
         documents = list(self.parse_response(response))
+        data = response.json()
+        print(data)
         if len(documents) == 0:
             return None
         if self.cursor_key is None:
             return None
-        return { "timestampValue": documents[len(documents) - 1][self.cursor_key] }
+        return (data[0]["skippedResults"] if len(data) > 0 and "skippedResults" in data[0] else 0) + len(documents)
 
     def request_params(
         self, stream_state: Mapping[str, Any], stream_slice: Mapping[str, Any] = {}, next_page_token: Mapping[str, Any] = {}
@@ -96,9 +98,9 @@ class FirestoreStream(HttpStream, ABC):
         self,
         stream_state: Mapping[str, Any],
         stream_slice: Mapping[str, Any] = {},
-        next_page_token: Mapping[str, Any] = {},
+        next_page_token: int = {},
     ) -> Optional[Mapping]:
-        page_size = stream_state.get("page_size", self.page_size)
+        page_size: int = stream_state.get("page_size", self.page_size)
         timestamp_state: Optional[datetime] = stream_state.get(self.cursor_key) if self.cursor_key else None
         timestamp_value = Helpers.parse_date(timestamp_state).isoformat() if timestamp_state else None
 
@@ -107,18 +109,10 @@ class FirestoreStream(HttpStream, ABC):
         return {
             "structuredQuery": {
                 "from": [{"collectionId": self.collection_name, "allDescendants": True}],
-                "where": {
-                    "fieldFilter": {
-                        "field": {"fieldPath": self.cursor_key },
-                        "op": "GREATER_THAN",
-                        "value": {
-                            "timestampValue": timestamp_value,
-                        },
-                    }
-                } if timestamp_value else None,
+                "offset": next_page_token if next_page_token else 0,
                 "limit": page_size,
                 "orderBy": [{"field": {"fieldPath": self.cursor_key}, "direction": "ASCENDING"}] if self.cursor_key else None,
-                "startAt": {"values": [next_page_token], "before": False} if next_page_token else None,
+                "startAt": {"values": [{ "timestampValue": timestamp_value }], "before": False} if timestamp_value else None,
             }
         }
     
@@ -194,8 +188,7 @@ class IncrementalFirestoreStream(FirestoreStream, IncrementalMixin):
     def request_params(
         self, stream_state: Mapping[str, Any], stream_slice: Mapping[str, Any] = {}, next_page_token: Mapping[str, Any] = {}
     ) -> MutableMapping[str, Any]:
-        params = super().request_params(stream_state=stream_state, stream_slice=stream_slice, next_page_token=next_page_token)
-        return params
+        return super().request_params(stream_state=stream_state, stream_slice=stream_slice, next_page_token=next_page_token)
 
     def read_records(
         self,
