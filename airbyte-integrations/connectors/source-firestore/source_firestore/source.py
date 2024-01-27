@@ -82,12 +82,17 @@ class FirestoreStream(HttpStream, ABC):
     def next_page_token(self, response: requests.Response) -> int:
         documents = list(self.parse_response(response))
         data = response.json()
-        print(data)
         if len(documents) == 0:
             return None
         if self.cursor_key is None:
             return None
-        return (data[0]["skippedResults"] if len(data) > 0 and "skippedResults" in data[0] else 0) + len(documents)
+
+        skipped_results = 0
+        for entry in data:
+            if "skippedResults" in entry:
+                skipped_results = skipped_results + entry["skippedResults"]
+
+        return skipped_results + len(documents)
 
     def request_params(
         self, stream_state: Mapping[str, Any], stream_slice: Mapping[str, Any] = {}, next_page_token: Mapping[str, Any] = {}
@@ -126,16 +131,44 @@ class FirestoreStream(HttpStream, ABC):
             if "document" in entry:
                 result = {
                     "name": entry["document"]["name"],
-                    "json_data": entry["document"]["fields"],
+                    "json_data": self.parse_json_data(entry["document"]["fields"]),
                 }
                 if self.cursor_key:
-                    cursor = entry["document"]["fields"][self.cursor_key]
-                    result[self.cursor_key] = cursor["timestampValue"] if "timestampValue" in cursor else cursor["stringValue"]
+                    result[self.cursor_key] = entry["document"]["fields"][self.cursor_key]
 
                 results.append(result)
 
+        print(results)
         self.logger.info(f"Stream {self.name}: Parsed {len(results)} results")
         return iter(results)
+
+    def parse_json_data(self, data: Any) -> Any:
+        for entry in data:
+            if "integerValue" in data[entry]:
+                data[entry] = data[entry]["integerValue"]
+            elif "doubleValue" in data[entry]:
+                data[entry] = data[entry]["doubleValue"]
+            elif "booleanValue" in data[entry]:
+                data[entry] = data[entry]["booleanValue"]
+            elif "timestampValue" in data[entry]:
+                data[entry] = data[entry]["timestampValue"]
+            elif "stringValue" in data[entry]:
+                data[entry] = data[entry]["stringValue"]
+            elif "bytesValue" in data[entry]:
+                data[entry] = data[entry]["bytesValue"]
+            elif "referenceValue" in data[entry]:
+                data[entry] = data[entry]["referenceValue"]
+            elif "geoPointValue" in data[entry]:
+                data[entry] = data[entry]["geoPointValue"]
+            elif "arrayValue" in data[entry]:
+                arr = []
+                if "values" in data[entry]["arrayValue"]:
+                    for item in data[entry]["arrayValue"]["values"]:
+                        arr.append(self.parse_json_data({ "value": item })["value"])
+                data[entry] = arr
+            elif "mapValue" in data[entry]:
+                data[entry] = self.parse_json_data(data[entry]["mapValue"]["fields"])
+        return data
 
     def get_json_schema(self) -> Mapping[str, Any]:
         result = {
