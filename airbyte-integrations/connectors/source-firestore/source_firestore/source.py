@@ -54,7 +54,7 @@ class FirestoreStream(HttpStream, ABC):
 
 
     url_base: str = Helpers.url_base
-    _primary_key: str = "name"
+    _primary_key: str = "__name__"
     page_size: int = 100
     http_method: str = "POST"
     collection_name: str
@@ -133,12 +133,11 @@ class FirestoreStream(HttpStream, ABC):
                     "name": entry["document"]["name"],
                     "json_data": self.parse_json_data(entry["document"]["fields"]),
                 }
-                if self.cursor_key:
+                if self.cursor_key and self.cursor_key in entry["document"]["fields"]:
                     result[self.cursor_key] = entry["document"]["fields"][self.cursor_key]
 
                 results.append(result)
 
-        print(results)
         self.logger.info(f"Stream {self.name}: Parsed {len(results)} results")
         return iter(results)
 
@@ -206,7 +205,7 @@ class IncrementalFirestoreStream(FirestoreStream, IncrementalMixin):
         for cursor_field in cursor_field_possibilities:
             if cursor_field in first_record:
                 return cursor_field
-        return "name"
+        return "__name__"
 
     @property
     def state(self) -> dict[str, Any]:
