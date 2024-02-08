@@ -234,9 +234,10 @@ class IncrementalFirestoreStream(FirestoreStream, IncrementalMixin):
             sync_mode=sync_mode, cursor_field=cursor_field, stream_slice=stream_slice, stream_state=stream_state
         ):
             yield record
-            record_date = Helpers.parse_date(record[self.cursor_key]) if self.cursor_key else None
-            if record_date:
-                self._cursor_value = max(record_date, self._cursor_value) if self._cursor_value else record_date
+            if sync_mode == SyncMode.incremental:
+                record_date = Helpers.parse_date(record[self.cursor_key]) if self.cursor_key else None
+                if record_date:
+                    self._cursor_value = max(record_date, self._cursor_value) if self._cursor_value else record_date
 
 class Collection(IncrementalFirestoreStream):
     project_id: str
