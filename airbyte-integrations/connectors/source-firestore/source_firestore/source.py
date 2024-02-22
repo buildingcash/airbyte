@@ -129,14 +129,17 @@ class FirestoreStream(HttpStream, ABC):
         results = []
         for entry in data:
             if "document" in entry:
-                result = {
-                    "name": entry["document"]["name"],
-                    "json_data": self.parse_json_data(entry["document"]["fields"]),
-                }
-                if self.cursor_key and self.cursor_key in entry["document"]["fields"]:
-                    result[self.cursor_key] = entry["document"]["fields"][self.cursor_key]
+                document = entry["document"]
+                if "fields" in document:
+                    result = {
+                        "name": document["name"],
+                        "json_data": self.parse_json_data(document["fields"]),
+                    }
+                    
+                    if self.cursor_key and self.cursor_key in document["fields"]:
+                        result[self.cursor_key] = document["fields"][self.cursor_key]
 
-                results.append(result)
+                    results.append(result)
 
         self.logger.info(f"Stream {self.name}: Parsed {len(results)} results")
         return iter(results)
@@ -159,6 +162,8 @@ class FirestoreStream(HttpStream, ABC):
                 data[entry] = data[entry]["referenceValue"]
             elif "geoPointValue" in data[entry]:
                 data[entry] = data[entry]["geoPointValue"]
+            elif "nullValue" in data[entry]:
+                data[entry] = data[entry]["nullValue"]
             elif "arrayValue" in data[entry]:
                 arr = []
                 if "values" in data[entry]["arrayValue"]:
