@@ -4,7 +4,7 @@
 
 
 from abc import ABC
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Iterable, List, Mapping, MutableMapping, Optional, Tuple, Union
 import requests
 from airbyte_cdk.models import SyncMode
@@ -107,7 +107,7 @@ class FirestoreStream(HttpStream, ABC):
     ) -> Optional[Mapping]:
         page_size: int = stream_state.get("page_size", self.page_size)
         timestamp_state: Optional[datetime] = stream_state.get(self.cursor_key) if self.cursor_key else None
-        timestamp_value = Helpers.parse_date(timestamp_state).isoformat() if timestamp_state else None
+        timestamp_value = Helpers.parse_date(timestamp_state) if timestamp_state else None
 
         self.logger.info(f"Stream {self.name}: Requesting body JSON for collection {self.collection_name} with cursor {self.cursor_key} (value: {timestamp_value}), next_page_token: {next_page_token} and page_size: {page_size}")
 
@@ -117,7 +117,7 @@ class FirestoreStream(HttpStream, ABC):
                 "offset": next_page_token if next_page_token else 0,
                 "limit": page_size,
                 "orderBy": [{"field": {"fieldPath": self.cursor_key}, "direction": "ASCENDING"}] if self.cursor_key else None,
-                "startAt": {"values": [{ "timestampValue": timestamp_value }], "before": False} if timestamp_value else None,
+                "startAt": {"values": [{ "timestampValue": (timestamp_value - timedelta(minutes=1)).isoformat() }], "before": False} if timestamp_value else None,
             }
         }
     
