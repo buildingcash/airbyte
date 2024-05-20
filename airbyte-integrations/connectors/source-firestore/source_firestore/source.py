@@ -22,7 +22,7 @@ import json
 
 class Helpers(object):
     url_base = "https://firestore.googleapis.com/v1/"
-    page_size = 100
+    page_size = 1000
 
     @staticmethod
     def get_collection_path(project_id: str, collection_name: str) -> str:
@@ -57,7 +57,7 @@ class FirestoreStream(HttpStream, ABC):
 
     url_base: str = Helpers.url_base
     _primary_key: str = "__name__"
-    page_size: int = 100
+    page_size: int = Helpers.page_size
     http_method: str = "POST"
     collection_name: str
 
