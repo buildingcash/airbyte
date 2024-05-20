@@ -22,7 +22,7 @@ import json
 
 class Helpers(object):
     url_base = "https://firestore.googleapis.com/v1/"
-    page_size = 1000
+    page_size = 10000
 
     @staticmethod
     def get_collection_path(project_id: str, collection_name: str) -> str:
@@ -83,18 +83,13 @@ class FirestoreStream(HttpStream, ABC):
 
     def next_page_token(self, response: requests.Response) -> int:
         documents = list(self.parse_response(response))
-        data = response.json()
+
         if len(documents) == 0:
             return None
         if self.cursor_key is None:
             return None
 
-        skipped_results = 0
-        for entry in data:
-            if "skippedResults" in entry:
-                skipped_results = skipped_results + entry["skippedResults"]
-
-        return skipped_results + len(documents)
+        return documents[-1]["name"]
 
     def request_params(
         self, stream_state: Mapping[str, Any], stream_slice: Mapping[str, Any] = {}, next_page_token: Mapping[str, Any] = {}
@@ -105,10 +100,10 @@ class FirestoreStream(HttpStream, ABC):
         self,
         stream_state: Mapping[str, Any],
         stream_slice: Mapping[str, Any] = {},
-        next_page_token: int = {},
+        next_page_token: Optional[str] = None,
     ) -> Optional[Mapping]:
         page_size: int = stream_state.get("page_size", self.page_size)
-        timestamp_state: Optional[datetime] = stream_state.get(self.cursor_key) if self.cursor_key else None
+        timestamp_state: Optional[str] = stream_state.get(self.cursor_key) if self.cursor_key else None
         attempts_same_date: int = stream_state.get(self.attempts_same_date_key) or 0
         timestamp_value = Helpers.parse_date(timestamp_state) if timestamp_state else None
 
@@ -121,13 +116,23 @@ class FirestoreStream(HttpStream, ABC):
             start_at = timestamp_value - timedelta(minutes=1) if timestamp_value else None
             before = True
 
+        order_by = []
+        start_at_values = []
+
+        if self.cursor_key and start_at:
+            order_by.append({ "field": { "fieldPath": self.cursor_key }, "direction": "ASCENDING" })
+            start_at_values.append({ "timestampValue": start_at.isoformat() })
+        if next_page_token:
+            order_by.append({ "field": { "fieldPath": "__name__" }, "direction": "ASCENDING" })
+            start_at_values.append({ "referenceValue": next_page_token })
+
         return {
             "structuredQuery": {
                 "from": [{"collectionId": self.collection_name, "allDescendants": True}],
-                "offset": next_page_token if next_page_token else 0,
+                "offset": 0,
                 "limit": page_size,
-                "orderBy": [{"field": {"fieldPath": self.cursor_key}, "direction": "ASCENDING"}] if self.cursor_key else None,
-                "startAt": {"values": [{ "timestampValue": start_at.isoformat() }], "before": before } if start_at else None,
+                "orderBy": order_by if len(order_by) > 0 else None,
+                "startAt": {"values": start_at_values, "before": before } if len(start_at_values) > 0 else None,
             }
         }
     
