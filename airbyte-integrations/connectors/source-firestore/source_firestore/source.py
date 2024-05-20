@@ -81,7 +81,7 @@ class FirestoreStream(HttpStream, ABC):
         self._cursor_value = None
         self.collection_name = collection_name
 
-    def next_page_token(self, response: requests.Response) -> int:
+    def next_page_token(self, response: requests.Response) -> Optional[Mapping[str, Any]]:
         documents = list(self.parse_response(response))
 
         if len(documents) == 0:
@@ -89,7 +89,9 @@ class FirestoreStream(HttpStream, ABC):
         if self.cursor_key is None:
             return None
 
-        return documents[-1]["name"]
+        doc = documents[-1]
+
+        return { "name": doc["name"], self.cursor_key: doc[self.cursor_key] }
 
     def request_params(
         self, stream_state: Mapping[str, Any], stream_slice: Mapping[str, Any] = {}, next_page_token: Mapping[str, Any] = {}
@@ -100,13 +102,15 @@ class FirestoreStream(HttpStream, ABC):
         self,
         stream_state: Mapping[str, Any],
         stream_slice: Mapping[str, Any] = {},
-        next_page_token: Optional[str] = None,
+        next_page_token: Optional[Mapping[str, Any]] = None,
     ) -> Optional[Mapping]:
         page_size: int = stream_state.get("page_size", self.page_size)
-        timestamp_state: Optional[str] = stream_state.get(self.cursor_key) if self.cursor_key else None
         attempts_same_date: int = stream_state.get(self.attempts_same_date_key) or 0
+        timestamp_state: Optional[str] = next_page_token.get(self.cursor_key) if next_page_token and self.cursor_key else None
+        if timestamp_state is None:
+            timestamp_state = stream_state.get(self.cursor_key) if self.cursor_key else None
         timestamp_value = Helpers.parse_date(timestamp_state) if timestamp_state else None
-
+        next_page_token_name = next_page_token.get("name") if next_page_token else None
         self.logger.info(f"Stream {self.name}: Requesting body JSON for collection {self.collection_name} with cursor {self.cursor_key} (value: {timestamp_value}), next_page_token: {next_page_token} and page_size: {page_size}")
 
         if attempts_same_date >= self.max_attempts_same_date:
@@ -122,9 +126,10 @@ class FirestoreStream(HttpStream, ABC):
         if self.cursor_key and start_at:
             order_by.append({ "field": { "fieldPath": self.cursor_key }, "direction": "ASCENDING" })
             start_at_values.append({ "timestampValue": start_at.isoformat() })
-        if next_page_token:
+        if next_page_token_name:
             order_by.append({ "field": { "fieldPath": "__name__" }, "direction": "ASCENDING" })
-            start_at_values.append({ "referenceValue": next_page_token })
+            start_at_values.append({ "referenceValue": next_page_token_name })
+            before = False
 
         return {
             "structuredQuery": {
