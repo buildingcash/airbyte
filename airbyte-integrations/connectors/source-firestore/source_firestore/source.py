@@ -43,6 +43,7 @@ class Helpers(object):
 # Basic full refresh stream
 class FirestoreStream(HttpStream, ABC):
     _cursor_value: Optional[datetime]
+    _attempts_same_date_value: int = 0
     cursor_field: Union[str, List[str], None] = None
     @property
     def cursor_key(self):
@@ -51,7 +52,8 @@ class FirestoreStream(HttpStream, ABC):
                 return self.cursor_field[0]
             return None
         return self.cursor_field
-
+    attempts_same_date_key: str = "attempts_same_date"
+    max_attempts_same_date: int = 2
 
     url_base: str = Helpers.url_base
     _primary_key: str = "__name__"
@@ -107,9 +109,17 @@ class FirestoreStream(HttpStream, ABC):
     ) -> Optional[Mapping]:
         page_size: int = stream_state.get("page_size", self.page_size)
         timestamp_state: Optional[datetime] = stream_state.get(self.cursor_key) if self.cursor_key else None
+        attempts_same_date: int = stream_state.get(self.attempts_same_date_key) or 0
         timestamp_value = Helpers.parse_date(timestamp_state) if timestamp_state else None
 
         self.logger.info(f"Stream {self.name}: Requesting body JSON for collection {self.collection_name} with cursor {self.cursor_key} (value: {timestamp_value}), next_page_token: {next_page_token} and page_size: {page_size}")
+
+        if attempts_same_date >= self.max_attempts_same_date:
+            start_at = timestamp_value
+            before = False
+        else:
+            start_at = timestamp_value - timedelta(minutes=1) if timestamp_value else None
+            before = True
 
         return {
             "structuredQuery": {
@@ -117,7 +127,7 @@ class FirestoreStream(HttpStream, ABC):
                 "offset": next_page_token if next_page_token else 0,
                 "limit": page_size,
                 "orderBy": [{"field": {"fieldPath": self.cursor_key}, "direction": "ASCENDING"}] if self.cursor_key else None,
-                "startAt": {"values": [{ "timestampValue": (timestamp_value - timedelta(minutes=1)).isoformat() }], "before": False} if timestamp_value else None,
+                "startAt": {"values": [{ "timestampValue": start_at.isoformat() }], "before": before } if start_at else None,
             }
         }
     
@@ -214,12 +224,13 @@ class IncrementalFirestoreStream(FirestoreStream, IncrementalMixin):
 
     @property
     def state(self) -> dict[str, Any]:
-        return { self.cursor_key: self._cursor_value.isoformat() } if self._cursor_value and self.cursor_key else {}
+        return { self.cursor_key: self._cursor_value.isoformat(), self.attempts_same_date_key: self._attempts_same_date_value + 1 } if self._cursor_value and self.cursor_key else {}
 
     @state.setter
     def state(self, value: MutableMapping[str, Any]):
         new_cursor_value = value.get(self.cursor_key, self.start_date) if self.cursor_key else None
         self._cursor_value = Helpers.parse_date(new_cursor_value) if isinstance(new_cursor_value, str) else new_cursor_value
+        self._attempts_same_date_value = value.get(self.attempts_same_date_key, 0)
         self.logger.info(f"Setting state: {self.cursor_key} = {self._cursor_value} (parsed from {new_cursor_value})")
 
     def request_params(
@@ -242,7 +253,9 @@ class IncrementalFirestoreStream(FirestoreStream, IncrementalMixin):
             if sync_mode == SyncMode.incremental:
                 record_date = Helpers.parse_date(record[self.cursor_key]) if self.cursor_key else None
                 if record_date:
-                    self._cursor_value = max(record_date, self._cursor_value) if self._cursor_value else record_date
+                    new_cursor_value = max(record_date, self._cursor_value) if self._cursor_value else record_date
+                    self._attempts_same_date_value = 0 if new_cursor_value != self._cursor_value else self._attempts_same_date_value
+                    self._cursor_value = new_cursor_value
 
 class Collection(IncrementalFirestoreStream):
     project_id: str
