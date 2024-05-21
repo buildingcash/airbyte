@@ -42,6 +42,7 @@ class Helpers(object):
 
 # Basic full refresh stream
 class FirestoreStream(HttpStream, ABC):
+    documents_read: int = 0
     _cursor_value: Optional[datetime]
     _attempts_same_date_value: int = 0
     cursor_field: Union[str, List[str], None] = None
@@ -88,9 +89,13 @@ class FirestoreStream(HttpStream, ABC):
             return None
         if self.cursor_key is None:
             return None
+        if self.documents_read > 500000:
+            return None
 
         doc = documents[-1]
 
+        if self.cursor_key == "__name__":
+            return { "name": doc["name"], "__name__": doc["name"] }
         return { "name": doc["name"], self.cursor_key: doc[self.cursor_key] }
 
     def request_params(
@@ -261,6 +266,7 @@ class IncrementalFirestoreStream(FirestoreStream, IncrementalMixin):
         ):
             yield record
             if sync_mode == SyncMode.incremental:
+                self.documents_read += 1
                 record_date = Helpers.parse_date(record[self.cursor_key]) if self.cursor_key else None
                 if record_date:
                     new_cursor_value = max(record_date, self._cursor_value) if self._cursor_value else record_date
