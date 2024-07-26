@@ -13,12 +13,13 @@ from airbyte_cdk.sources.utils import casing
 from airbyte_cdk.sources.streams import Stream
 from airbyte_cdk.sources.streams.core import IncrementalMixin
 from airbyte_cdk.sources.streams.http import HttpStream
-from airbyte_cdk.sources.streams.http.auth import TokenAuthenticator
+from airbyte_cdk.sources.streams.http.requests_native_auth import TokenAuthenticator
 from airbyte_cdk.models.airbyte_protocol import DestinationSyncMode, SyncMode
 from google.oauth2 import service_account
 import google.auth.transport.requests
 import requests
 import json
+import re
 
 class Helpers(object):
     url_base = "https://firestore.googleapis.com/v1/"
@@ -40,12 +41,16 @@ class Helpers(object):
     def parse_date(date: str) -> datetime:
         return datetime.fromisoformat(date.replace("Z", "+00:00"))
 
+
+    def get_first_document_name(project: str) -> str:
+        return 
+
 # Basic full refresh stream
 class FirestoreStream(HttpStream, ABC):
     documents_read: int = 0
     _cursor_value: Optional[datetime]
     _attempts_same_date_value: int = 0
-    cursor_field: Union[str, List[str], None] = None
+    cursor_field: Union[str, List[str], None] = []
     @property
     def cursor_key(self):
         if isinstance(self.cursor_field, list):
@@ -76,6 +81,7 @@ class FirestoreStream(HttpStream, ABC):
         return casing.camel_to_snake(self.collection_name)
 
     def __init__(self, authenticator: TokenAuthenticator, collection_name: str):
+        self.authenticator = authenticator
         super().__init__(
             authenticator=authenticator,
         )
@@ -99,7 +105,8 @@ class FirestoreStream(HttpStream, ABC):
 
         if self.cursor_key == "__name__":
             r = { "name": doc["name"], "__name__": doc["name"] }
-        r = { "name": doc["name"], self.cursor_key: doc[self.cursor_key] }
+        else:
+            r = { "name": doc["name"], self.cursor_key: doc[self.cursor_key] }
 
         self.logger.info(f"Stream {self.name}: Next page token: {r}")
 
@@ -118,7 +125,7 @@ class FirestoreStream(HttpStream, ABC):
     ) -> Optional[Mapping]:
         page_size: int = stream_state.get("page_size", self.page_size)
         attempts_same_date: int = stream_state.get(self.attempts_same_date_key) or 0
-        timestamp_state: Optional[str] = next_page_token.get(self.cursor_key) if next_page_token and self.cursor_key else None
+        timestamp_state: Optional[str] = next_page_token.get(self.cursor_key) if next_page_token and self.cursor_key and self.cursor_key != "__name__" else None
         timestamp_value = Helpers.parse_date(timestamp_state) if timestamp_state else None
         if timestamp_state is None:
             timestamp_state = stream_state.get(self.cursor_key)  if self.cursor_key else None
@@ -170,7 +177,7 @@ class FirestoreStream(HttpStream, ABC):
                     result = {
                         "name": document["name"],
                         "json_data": self.parse_json_data(document["fields"]),
-                    }
+                    } | self.parse_path_to_ids_dict(document["name"])
                     
                     if self.cursor_key and self.cursor_key in document["fields"]:
                         result[self.cursor_key] = document["fields"][self.cursor_key]
@@ -208,8 +215,40 @@ class FirestoreStream(HttpStream, ABC):
             elif "mapValue" in data[entry]:
                 data[entry] = self.parse_json_data(data[entry]["mapValue"]["fields"])
         return data
+    
+    def parse_path_to_ids_dict(self, path: str) -> dict[str, str]:
+        pattern = r'.*?' + re.escape("databases/(default)/documents/")
+        path = re.sub(pattern, '', path, count=1)
+        parts = path.strip('/').split('/')
+        result = {}
+        
+        for i in range(0, len(parts) - 2, 2):
+            if i + 1 < len(parts):
+                prefix = parts[i]
+                if prefix.endswith('s'):
+                    key = f"{prefix[:-1]}_id"
+                else:
+                    key = f"{prefix}_id"
+                value = parts[i + 1]
+                result[key] = value
+        if len(parts) >= 2:
+            last_id = parts[-1]
+            result['id'] = last_id
+        
+        return result
 
     def get_json_schema(self) -> Mapping[str, Any]:
+        request = requests.post(f"{Helpers.url_base}{Helpers.get_collection_path(self.project_id, self.collection_name)}", headers=self.authenticator.get_auth_header(), data=json.dumps({"structuredQuery": {
+            "from": [{"collectionId": self.collection_name, "allDescendants": True}],
+            "offset": 0,
+            "limit": 1,
+        }}))
+        records = list(request.json())
+        additional_ids: dict[str, Any] = {}
+        if len(records) > 0:
+            ids = self.parse_path_to_ids_dict(records[0]["document"]["name"])
+            for key in ids:
+                additional_ids[key] = { "type": "string" }
         result = {
             "type": "object",
             "$schema": "http://json-schema.org/draft-07/schema#",
@@ -218,7 +257,7 @@ class FirestoreStream(HttpStream, ABC):
             "properties": {
                 "name": { "type": "string" },
                 "json_data": { "type": "object" },
-            },
+            } | additional_ids,
         }
         if self.cursor_key:
             result["properties"][self.cursor_key] = { "type": ["null", "string"] }
@@ -238,7 +277,7 @@ class IncrementalFirestoreStream(FirestoreStream, IncrementalMixin):
         self.logger.info(f"Stream {self.name}: Guessing from 1 record")
         records = list(self.read_records(sync_mode=SyncMode.incremental, stream_state={"page_size": 1}))
         if len(records) == 0:
-            return []
+            return None
         # try to guess default field from first record
         first_record = records[0]["json_data"]
 
@@ -277,7 +316,7 @@ class IncrementalFirestoreStream(FirestoreStream, IncrementalMixin):
             yield record
             if sync_mode == SyncMode.incremental:
                 self.documents_read += 1
-                record_date = Helpers.parse_date(record[self.cursor_key]) if self.cursor_key else None
+                record_date = Helpers.parse_date(record[self.cursor_key]) if self.cursor_key and self.cursor_key != "__name__" else None
                 if record_date:
                     new_cursor_value = max(record_date, self._cursor_value) if self._cursor_value else record_date
                     self._attempts_same_date_value = 0 if new_cursor_value != self._cursor_value else self._attempts_same_date_value
@@ -297,7 +336,6 @@ class Collection(IncrementalFirestoreStream):
         self, stream_state: Mapping[str, Any] = {}, stream_slice: Mapping[str, Any] = {}, next_page_token: Mapping[str, Any] = {}
     ) -> str:
         return Helpers.get_collection_path(self.project_id, self.collection_name)
-
 
 # Source
 class SourceFirestore(AbstractSource):
@@ -328,6 +366,7 @@ class SourceFirestore(AbstractSource):
 
     def streams(self, config: Mapping[str, Any]):
         auth = self.get_auth(config=config)
+        print(config)
         project_id = config["project_id"]
         collection_groups = config["collection_groups"] if "collection_groups" in config else []
         collections = self.discover_collections(project_id, auth)
