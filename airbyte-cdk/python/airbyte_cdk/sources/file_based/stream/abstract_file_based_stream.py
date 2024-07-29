@@ -10,13 +10,16 @@ from airbyte_cdk.models import SyncMode
 from airbyte_cdk.sources.file_based.availability_strategy import AbstractFileBasedAvailabilityStrategy
 from airbyte_cdk.sources.file_based.config.file_based_stream_config import FileBasedStreamConfig, PrimaryKeyType
 from airbyte_cdk.sources.file_based.discovery_policy import AbstractDiscoveryPolicy
-from airbyte_cdk.sources.file_based.exceptions import FileBasedSourceError, RecordParseError, UndefinedParserError
+from airbyte_cdk.sources.file_based.exceptions import FileBasedErrorsCollector, FileBasedSourceError, RecordParseError, UndefinedParserError
 from airbyte_cdk.sources.file_based.file_based_stream_reader import AbstractFileBasedStreamReader
 from airbyte_cdk.sources.file_based.file_types.file_type_parser import FileTypeParser
 from airbyte_cdk.sources.file_based.remote_file import RemoteFile
 from airbyte_cdk.sources.file_based.schema_validation_policies import AbstractSchemaValidationPolicy
+from airbyte_cdk.sources.file_based.stream.cursor import AbstractFileBasedCursor
 from airbyte_cdk.sources.file_based.types import StreamSlice
 from airbyte_cdk.sources.streams import Stream
+from airbyte_cdk.sources.streams.checkpoint import Cursor
+from deprecated import deprecated
 
 
 class AbstractFileBasedStream(Stream):
@@ -31,7 +34,7 @@ class AbstractFileBasedStream(Stream):
       files in the stream.
     - A DiscoveryPolicy that controls the number of concurrent requests sent to the source
       during discover, and the number of files used for schema discovery.
-    - A dictionary of FileType:Parser that holds all of the file types that can be handled
+    - A dictionary of FileType:Parser that holds all the file types that can be handled
       by the stream.
     """
 
@@ -44,6 +47,8 @@ class AbstractFileBasedStream(Stream):
         discovery_policy: AbstractDiscoveryPolicy,
         parsers: Dict[Type[Any], FileTypeParser],
         validation_policy: AbstractSchemaValidationPolicy,
+        errors_collector: FileBasedErrorsCollector,
+        cursor: AbstractFileBasedCursor,
     ):
         super().__init__()
         self.config = config
@@ -53,6 +58,8 @@ class AbstractFileBasedStream(Stream):
         self._discovery_policy = discovery_policy
         self._availability_strategy = availability_strategy
         self._parsers = parsers
+        self.errors_collector = errors_collector
+        self._cursor = cursor
 
     @property
     @abstractmethod
@@ -65,7 +72,7 @@ class AbstractFileBasedStream(Stream):
         List all files that belong to the stream.
 
         The output of this method is cached so we don't need to list the files more than once.
-        This means we won't pick up changes to the files during a sync. This meethod uses the
+        This means we won't pick up changes to the files during a sync. This method uses the
         get_files method which is implemented by the concrete stream class.
         """
         return list(self.get_files())
@@ -147,9 +154,19 @@ class AbstractFileBasedStream(Stream):
             )
 
     @cached_property
+    @deprecated(version="3.7.0")
     def availability_strategy(self) -> AbstractFileBasedAvailabilityStrategy:
         return self._availability_strategy
 
     @property
     def name(self) -> str:
         return self.config.name
+
+    def get_cursor(self) -> Optional[Cursor]:
+        """
+        This is a temporary hack. Because file-based, declarative, and concurrent have _slightly_ different cursor implementations
+        the file-based cursor isn't compatible with the cursor-based iteration flow in core.py top-level CDK. By setting this to
+        None, we defer to the regular incremental checkpoint flow. Once all cursors are consolidated under a common interface
+        then this override can be removed.
+        """
+        return None

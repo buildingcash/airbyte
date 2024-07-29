@@ -6,12 +6,14 @@ from abc import ABC, abstractmethod
 from typing import Any, Iterable, Mapping, Optional
 
 from airbyte_cdk.models import AirbyteStream
+from airbyte_cdk.sources.source import ExperimentalClassWarning
 from airbyte_cdk.sources.streams.concurrent.availability_strategy import StreamAvailability
-from airbyte_cdk.sources.streams.concurrent.partitions.record import Record
+from airbyte_cdk.sources.streams.concurrent.cursor import Cursor
+from airbyte_cdk.sources.streams.concurrent.partitions.partition import Partition
 from deprecated.classic import deprecated
 
 
-@deprecated("This class is experimental. Use at your own risk.")
+@deprecated("This class is experimental. Use at your own risk.", category=ExperimentalClassWarning)
 class AbstractStream(ABC):
     """
     AbstractStream is an experimental interface for streams developed as part of the Concurrent CDK.
@@ -37,10 +39,10 @@ class AbstractStream(ABC):
     """
 
     @abstractmethod
-    def read(self) -> Iterable[Record]:
+    def generate_partitions(self) -> Iterable[Partition]:
         """
-        Read a stream in full refresh mode
-        :return: The stream's records
+        Generates the partitions that will be read by this stream.
+        :return: An iterable of partitions.
         """
 
     @property
@@ -80,4 +82,11 @@ class AbstractStream(ABC):
     def log_stream_sync_configuration(self) -> None:
         """
         Logs the stream's configuration for debugging purposes.
+        """
+
+    @property
+    @abstractmethod
+    def cursor(self) -> Cursor:
+        """
+        :return: The cursor associated with this stream.
         """

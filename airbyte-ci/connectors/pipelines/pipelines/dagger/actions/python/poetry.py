@@ -9,6 +9,7 @@ from typing import List, Optional
 import toml
 from dagger import Container, Directory
 from pipelines.airbyte_ci.connectors.context import PipelineContext
+from pipelines.consts import AIRBYTE_SUBMODULE_DIR_NAME
 from pipelines.dagger.actions.python.common import with_pip_packages, with_python_package
 from pipelines.dagger.actions.system.common import with_debian_packages
 from pipelines.dagger.containers.python import with_python_base
@@ -37,11 +38,11 @@ async def find_local_dependencies_in_pyproject_toml(
 
     pyproject_content = toml.loads(pyproject_content_raw)
     local_dependency_paths = []
-    for dep, value in pyproject_content["tool"]["poetry"]["dependencies"].items():
+    for value in pyproject_content["tool"]["poetry"]["dependencies"].values():
         if isinstance(value, dict) and "path" in value:
-            local_dependency_path = Path(value["path"])
-            pyproject_file_path = Path(pyproject_file_path)
-            local_dependency_path = str((pyproject_file_path / local_dependency_path).resolve().relative_to(Path.cwd()))
+            local_dependency_path = str((Path(pyproject_file_path) / Path(value["path"])).resolve().relative_to(Path.cwd()))
+            # Support the edge case where the airbyte repo is used as a git submodule.
+            local_dependency_path = local_dependency_path.removeprefix(f"{AIRBYTE_SUBMODULE_DIR_NAME}/")
             local_dependency_paths.append(local_dependency_path)
 
             # Ensure we parse the child dependencies

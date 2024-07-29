@@ -2,10 +2,10 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 #
 
+import logging
 import unittest
 from unittest.mock import MagicMock, Mock, patch
 
-from airbyte_cdk import AirbyteLogger
 from airbyte_cdk.models import ConnectorSpecification, Status
 from destination_qdrant.config import ConfigModel
 from destination_qdrant.destination import DestinationQdrant
@@ -28,7 +28,7 @@ class TestDestinationQdrant(unittest.TestCase):
             },
         }
         self.config_model = ConfigModel.parse_obj(self.config)
-        self.logger = AirbyteLogger()
+        self.logger = logging.getLogger("airbyte")
 
     @patch("destination_qdrant.destination.QdrantIndexer")
     @patch("destination_qdrant.destination.create_from_config")
@@ -91,7 +91,7 @@ class TestDestinationQdrant(unittest.TestCase):
         destination = DestinationQdrant()
         list(destination.write(self.config, configured_catalog, input_messages))
 
-        MockedWriter.assert_called_once_with(self.config_model.processing, mock_indexer, mock_embedder, batch_size=256)
+        MockedWriter.assert_called_once_with(self.config_model.processing, mock_indexer, mock_embedder, batch_size=256, omit_raw_text=False)
         mock_writer.write.assert_called_once_with(configured_catalog, input_messages)
 
     def test_spec(self):
