@@ -1,7 +1,7 @@
-FROM python:3.9.13-slim as base
+FROM python:3.9.13-slim AS base
 
 # build and load all requirements
-FROM base as builder
+FROM base AS builder
 WORKDIR /airbyte/integration_code
 
 # upgrade pip to the latest version
@@ -28,7 +28,7 @@ RUN apt-get install -y bash
 COPY main.py ./
 COPY source_firestore ./source_firestore
 
-ENV AIRBYTE_ENTRYPOINT "python /airbyte/integration_code/main.py"
+ENV AIRBYTE_ENTRYPOINT="python /airbyte/integration_code/main.py"
 ENTRYPOINT ["python", "/airbyte/integration_code/main.py"]
 
 LABEL io.airbyte.version=0.3.0
