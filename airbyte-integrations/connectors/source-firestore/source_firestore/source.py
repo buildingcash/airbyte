@@ -60,7 +60,7 @@ class FirestoreStream(HttpStream, ABC):
     page_size: int = Helpers.page_size
     http_method: str = "POST"
     collection_name: str
-    authentication: TokenAuthenticator
+    first_document: Union[dict[str, Any], None]
 
     @property
     def primary_key(self) -> Optional[Union[str, List[str], List[List[str]]]]:
@@ -79,9 +79,10 @@ class FirestoreStream(HttpStream, ABC):
         super().__init__(
             authenticator=authenticator,
         )
-        self.authentication = authenticator
         self._cursor_value = None
         self.collection_name = collection_name
+
+        self.first_document = self.get_first_document(authenticator=authenticator)
 
     def next_page_token(self, response: requests.Response) -> Optional[Mapping[str, Any]]:
         documents = list(self.parse_response(response))
@@ -232,9 +233,9 @@ class FirestoreStream(HttpStream, ABC):
         
         return result
 
-    def get_first_document(self) -> Union[dict[str, Any], None]:
+    def get_first_document(self, authenticator: TokenAuthenticator) -> Union[dict[str, Any], None]:
         url = f"{Helpers.url_base}{Helpers.get_collection_path(self.project_id, self.collection_name)}"
-        headers = self.authentication.get_auth_header()
+        headers = authenticator.get_auth_header()
         data = json.dumps({
             "structuredQuery": {
                 "from": [{"collectionId": self.collection_name, "allDescendants": True}],
@@ -250,9 +251,8 @@ class FirestoreStream(HttpStream, ABC):
 
     def get_json_schema(self) -> Mapping[str, Any]:
         additional_ids: dict[str, Any] = {}
-        record = self.get_first_document()
-        if record is not None:
-            ids = self.parse_path_to_ids_dict(record["document"]["name"])
+        if self.first_document is not None:
+            ids = self.parse_path_to_ids_dict(self.first_document["document"]["name"])
             for key in ids:
                 additional_ids[key] = { "type": "string" }
         result = {
@@ -280,14 +280,11 @@ class IncrementalFirestoreStream(FirestoreStream, IncrementalMixin):
 
     def guess_cursor_field(self, cursor_field_possibilities: List[str]) -> Union[str, None]:
         self.logger.info(f"Stream {self.name}: Guessing from 1 record")
-        record = self.get_first_document()
-        if record is None:
+        if self.first_document is None:
             return None
         # try to guess default field from first record
-        first_record = record["document"]["fields"]
-
         for cursor_field in cursor_field_possibilities:
-            if cursor_field in first_record:
+            if cursor_field in self.first_document["document"]["fields"]:
                 return cursor_field
         return "__name__"
 
