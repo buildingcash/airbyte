@@ -2,7 +2,6 @@
 # Copyright (c) 2022 Airbyte, Inc., all rights reserved.
 #
 
-
 from abc import ABC
 from datetime import datetime, timedelta
 from typing import Any, Iterable, List, Mapping, MutableMapping, Optional, Tuple, Union
@@ -13,11 +12,9 @@ from airbyte_cdk.sources.utils import casing
 from airbyte_cdk.sources.streams import Stream
 from airbyte_cdk.sources.streams.core import IncrementalMixin
 from airbyte_cdk.sources.streams.http import HttpStream
-from airbyte_cdk.sources.streams.http.requests_native_auth import TokenAuthenticator
+from airbyte_cdk.sources.streams.http.auth import TokenAuthenticator
 from airbyte_cdk.models.airbyte_protocol import DestinationSyncMode, SyncMode
 from google.oauth2 import service_account
-import google.auth.transport.requests
-import requests
 import json
 import re
 
@@ -346,6 +343,7 @@ class Collection(IncrementalFirestoreStream):
 # Source
 class SourceFirestore(AbstractSource):
     def get_auth(self, config: Mapping[str, Any]) -> TokenAuthenticator:
+        print("Get auth")
         scopes = ['https://www.googleapis.com/auth/datastore']
         credentials = service_account.Credentials.from_service_account_info(json.loads(config["google_application_credentials"]), scopes=scopes)        
         credentials.refresh(google.auth.transport.requests.Request())
@@ -353,6 +351,7 @@ class SourceFirestore(AbstractSource):
         return TokenAuthenticator(token=token)
 
     def check_connection(self, logger, config: Mapping[str, Any]) -> Tuple[bool, Any]:
+        print("Check connection")
         auth = self.get_auth(config=config)
         project_id = config["project_id"]
         url = Helpers.get_collections_list_url(project_id)
@@ -364,6 +363,7 @@ class SourceFirestore(AbstractSource):
         return True, None
 
     def discover_collections(self, project_id: str, auth: TokenAuthenticator) -> List[str]:
+        print("Discovering collections")
         url = Helpers.get_collections_list_url(project_id)
         response = requests.post(url, headers=auth.get_auth_header())
         response.raise_for_status()
@@ -371,6 +371,7 @@ class SourceFirestore(AbstractSource):
         return json.get("collectionIds", [])
 
     def streams(self, config: Mapping[str, Any]):
+        print("Initializing streams")
         auth = self.get_auth(config=config)
         project_id = config["project_id"]
         collection_groups = config["collection_groups"] if "collection_groups" in config else []

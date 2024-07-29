@@ -6,8 +6,8 @@
 from setuptools import find_packages, setup
 
 MAIN_REQUIREMENTS = [
-    "airbyte-cdk",
-    "google-auth",
+    "airbyte-cdk~=0.90.0",
+    "google-auth~=2.29.0",
 ]
 
 TEST_REQUIREMENTS = [
