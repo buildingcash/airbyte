@@ -5,7 +5,6 @@
 from abc import ABC
 from datetime import datetime, timedelta
 from typing import Any, Iterable, List, Mapping, MutableMapping, Optional, Tuple, Union
-import requests
 from airbyte_cdk.models import SyncMode
 from airbyte_cdk.sources import AbstractSource
 from airbyte_cdk.sources.utils import casing
@@ -15,6 +14,8 @@ from airbyte_cdk.sources.streams.http import HttpStream
 from airbyte_cdk.sources.streams.http.auth import TokenAuthenticator
 from airbyte_cdk.models.airbyte_protocol import DestinationSyncMode, SyncMode
 from google.oauth2 import service_account
+import google.auth.transport.requests
+import requests
 import json
 import re
 
@@ -59,6 +60,7 @@ class FirestoreStream(HttpStream, ABC):
     page_size: int = Helpers.page_size
     http_method: str = "POST"
     collection_name: str
+    authentication: TokenAuthenticator
 
     @property
     def primary_key(self) -> Optional[Union[str, List[str], List[List[str]]]]:
@@ -74,12 +76,12 @@ class FirestoreStream(HttpStream, ABC):
         return casing.camel_to_snake(self.collection_name)
 
     def __init__(self, authenticator: TokenAuthenticator, collection_name: str):
-        self.authenticator = authenticator
-        self._cursor_value = None
-        self.collection_name = collection_name
         super().__init__(
             authenticator=authenticator,
         )
+        self.authentication = authenticator
+        self._cursor_value = None
+        self.collection_name = collection_name
 
     def next_page_token(self, response: requests.Response) -> Optional[Mapping[str, Any]]:
         documents = list(self.parse_response(response))
@@ -232,7 +234,7 @@ class FirestoreStream(HttpStream, ABC):
 
     def get_first_document(self) -> Union[dict[str, Any], None]:
         url = f"{Helpers.url_base}{Helpers.get_collection_path(self.project_id, self.collection_name)}"
-        headers = self.authenticator.get_auth_header()
+        headers = self.authentication.get_auth_header()
         data = json.dumps({
             "structuredQuery": {
                 "from": [{"collectionId": self.collection_name, "allDescendants": True}],
