@@ -41,10 +41,6 @@ class Helpers(object):
     def parse_date(date: str) -> datetime:
         return datetime.fromisoformat(date.replace("Z", "+00:00"))
 
-
-    def get_first_document_name(project: str) -> str:
-        return 
-
 # Basic full refresh stream
 class FirestoreStream(HttpStream, ABC):
     documents_read: int = 0
@@ -82,11 +78,11 @@ class FirestoreStream(HttpStream, ABC):
 
     def __init__(self, authenticator: TokenAuthenticator, collection_name: str):
         self.authenticator = authenticator
+        self._cursor_value = None
+        self.collection_name = collection_name
         super().__init__(
             authenticator=authenticator,
         )
-        self._cursor_value = None
-        self.collection_name = collection_name
 
     def next_page_token(self, response: requests.Response) -> Optional[Mapping[str, Any]]:
         documents = list(self.parse_response(response))
@@ -237,16 +233,27 @@ class FirestoreStream(HttpStream, ABC):
         
         return result
 
-    def get_json_schema(self) -> Mapping[str, Any]:
-        request = requests.post(f"{Helpers.url_base}{Helpers.get_collection_path(self.project_id, self.collection_name)}", headers=self.authenticator.get_auth_header(), data=json.dumps({"structuredQuery": {
-            "from": [{"collectionId": self.collection_name, "allDescendants": True}],
-            "offset": 0,
-            "limit": 1,
-        }}))
+    def get_first_document(self) -> Union[dict[str, Any], None]:
+        url = f"{Helpers.url_base}{Helpers.get_collection_path(self.project_id, self.collection_name)}"
+        headers = self.authenticator.get_auth_header()
+        data = json.dumps({
+            "structuredQuery": {
+                "from": [{"collectionId": self.collection_name, "allDescendants": True}],
+                "offset": 0,
+                "limit": 1,
+                "orderBy": [{ "field": { "fieldPath": "__name__" }, "direction": "ASCENDING" }]
+            }
+        })
+        request = requests.post(url, headers=headers, data=data)
         records = list(request.json())
+
+        return records[0] if len(records) > 0 else None
+
+    def get_json_schema(self) -> Mapping[str, Any]:
         additional_ids: dict[str, Any] = {}
-        if len(records) > 0:
-            ids = self.parse_path_to_ids_dict(records[0]["document"]["name"])
+        record = self.get_first_document()
+        if record is not None:
+            ids = self.parse_path_to_ids_dict(record["document"]["name"])
             for key in ids:
                 additional_ids[key] = { "type": "string" }
         result = {
@@ -261,7 +268,6 @@ class FirestoreStream(HttpStream, ABC):
         }
         if self.cursor_key:
             result["properties"][self.cursor_key] = { "type": ["null", "string"] }
-
         return result
 
 
@@ -275,11 +281,11 @@ class IncrementalFirestoreStream(FirestoreStream, IncrementalMixin):
 
     def guess_cursor_field(self, cursor_field_possibilities: List[str]) -> Union[str, None]:
         self.logger.info(f"Stream {self.name}: Guessing from 1 record")
-        records = list(self.read_records(sync_mode=SyncMode.incremental, stream_state={"page_size": 1}))
-        if len(records) == 0:
+        record = self.get_first_document()
+        if record is None:
             return None
         # try to guess default field from first record
-        first_record = records[0]["json_data"]
+        first_record = record["document"]["fields"]
 
         for cursor_field in cursor_field_possibilities:
             if cursor_field in first_record:
@@ -329,8 +335,8 @@ class Collection(IncrementalFirestoreStream):
     def __init__(self, authenticator: TokenAuthenticator, collection_name: str, config: Mapping[str, Any]):
         self.project_id = config["project_id"]
         self.collection_name = collection_name
-        super().__init__(authenticator, collection_name=collection_name, cursor_field_possibilities=config["cursor_field_possibilities"])
         self.start_date = Helpers.parse_date(config["start_date"]) if "start_date" in config else None
+        super().__init__(authenticator, collection_name=collection_name, cursor_field_possibilities=config["cursor_field_possibilities"])
 
     def path(
         self, stream_state: Mapping[str, Any] = {}, stream_slice: Mapping[str, Any] = {}, next_page_token: Mapping[str, Any] = {}
@@ -366,7 +372,6 @@ class SourceFirestore(AbstractSource):
 
     def streams(self, config: Mapping[str, Any]):
         auth = self.get_auth(config=config)
-        print(config)
         project_id = config["project_id"]
         collection_groups = config["collection_groups"] if "collection_groups" in config else []
         collections = self.discover_collections(project_id, auth)
