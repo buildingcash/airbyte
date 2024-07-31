@@ -251,7 +251,7 @@ class FirestoreStream(HttpStream, ABC):
 
     def get_json_schema(self) -> Mapping[str, Any]:
         additional_ids: dict[str, Any] = {}
-        if self.first_document is not None:
+        if self.first_document is not None and "document" in self.first_document:
             ids = self.parse_path_to_ids_dict(self.first_document["document"]["name"])
             for key in ids:
                 additional_ids[key] = { "type": "string" }
@@ -280,7 +280,7 @@ class IncrementalFirestoreStream(FirestoreStream, IncrementalMixin):
 
     def guess_cursor_field(self, cursor_field_possibilities: List[str]) -> Union[str, None]:
         self.logger.info(f"Stream {self.name}: Guessing from 1 record")
-        if self.first_document is None:
+        if self.first_document is None or "document" not in self.first_document:
             return None
         # try to guess default field from first record
         for cursor_field in cursor_field_possibilities:
