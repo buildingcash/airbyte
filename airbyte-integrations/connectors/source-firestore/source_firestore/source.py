@@ -3,7 +3,7 @@
 #
 
 from abc import ABC
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, List, Mapping, MutableMapping, Optional, Tuple, Union
 from airbyte_cdk.models import SyncMode
 from airbyte_cdk.sources import AbstractSource
@@ -142,7 +142,7 @@ class FirestoreStream(HttpStream, ABC):
 
         if self.cursor_key:
             order_by.append({ "field": { "fieldPath": self.cursor_key }, "direction": "ASCENDING" })
-            start_at_values.append({ "timestampValue": start_at.isoformat() if start_at else datetime.fromtimestamp(0).isoformat() })
+            start_at_values.append({ "timestampValue": start_at.isoformat() if start_at else datetime.fromtimestamp(0, tz=timezone.utc).isoformat() })
         if next_page_token_name:
             order_by.append({ "field": { "fieldPath": "__name__" }, "direction": "ASCENDING" })
             start_at_values.append({ "referenceValue": next_page_token_name })
