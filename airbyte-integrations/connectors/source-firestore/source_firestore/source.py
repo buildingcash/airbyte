@@ -140,7 +140,7 @@ class FirestoreStream(HttpStream, ABC):
         order_by = []
         start_at_values = []
 
-        if self.cursor_key:
+        if self.cursor_key and self.cursor_key != "__name__":
             order_by.append({ "field": { "fieldPath": self.cursor_key }, "direction": "ASCENDING" })
             start_at_values.append({ "timestampValue": start_at.isoformat() if start_at else datetime.fromtimestamp(0, tz=timezone.utc).isoformat() })
         if next_page_token_name:
